@@ -55,8 +55,20 @@ class QuestViewModel : ViewModel() {
             _headline.value = when (result.source) {
                 com.taskflow.app.data.QuestSource.LOCAL_MODEL -> "本地模型已生成: ${result.quest.title}"
                 com.taskflow.app.data.QuestSource.TEMPLATE -> result.note ?: "本地模型不可用，已回退模板任务"
+                else -> ""
             }
             refreshLocalModelStatus()
+        }
+    }
+
+    fun rollQuestWithApi(vibe: String = "random", intensity: String = "spicy", theme: String? = null) {
+        viewModelScope.launch {
+            val result = repository.rollQuestWithApi(vibe = vibe, intensity = intensity, theme = theme)
+            _headline.value = when (result.source) {
+                com.taskflow.app.data.QuestSource.API -> "API 已生成: ${result.quest.title}"
+                com.taskflow.app.data.QuestSource.TEMPLATE -> result.note ?: "API 不可用，已回退模板任务"
+                com.taskflow.app.data.QuestSource.LOCAL_MODEL -> ""
+            }
         }
     }
 

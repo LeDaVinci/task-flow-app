@@ -4,6 +4,8 @@ import android.util.Log
 import com.taskflow.app.ai.LocalGenerationResult
 import com.taskflow.app.ai.LocalModelStatus
 import com.taskflow.app.ai.LocalModelTaskGenerator
+import com.taskflow.app.ai.ApiGenerationResult
+import com.taskflow.app.ai.OpenAiApiTaskGenerator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,10 +21,12 @@ data class QuestCreationResult(
 enum class QuestSource {
     TEMPLATE,
     LOCAL_MODEL,
+    API,
 }
 
 class QuestRepository(
     private val localModelTaskGenerator: LocalModelTaskGenerator,
+    private val apiTaskGenerator: OpenAiApiTaskGenerator,
     private val planner: QuestBlueprintPlanner = QuestBlueprintPlanner(),
 ) {
 
@@ -94,6 +98,49 @@ class QuestRepository(
                 Log.i(TAG, "Local model fallback: ${result.status.message}")
                 val quest = createQuest(blueprint, QuestSource.TEMPLATE)
                 QuestCreationResult(quest, QuestSource.TEMPLATE, result.status.message)
+            }
+        }
+    }
+
+    suspend fun rollQuestWithApi(
+        vibe: String = "random",
+        intensity: String = "spicy",
+        durationMinutes: Int? = null,
+        forceBoss: Boolean = false,
+        theme: String? = null,
+    ): QuestCreationResult {
+        val normalizedVibe = vibe.ifBlank { "random" }.lowercase()
+        val normalizedIntensity = intensity.ifBlank { "spicy" }.lowercase()
+        val actualDuration = durationMinutes ?: suggestedDuration(normalizedIntensity, forceBoss)
+        val avoidTitles = _quests.value.take(8).map { it.title }
+        val blueprint = planner.plan(
+            vibe = normalizedVibe,
+            intensity = normalizedIntensity,
+            durationMinutes = actualDuration,
+            forceBoss = forceBoss,
+            requestedTheme = theme,
+            avoidTitles = avoidTitles,
+        )
+        return when (val result = apiTaskGenerator.polishBlueprint(blueprint, avoidTitles)) {
+            is ApiGenerationResult.Success -> {
+                val quest = createQuest(
+                    title = result.draft.title,
+                    description = result.draft.description,
+                    reward = result.draft.reward,
+                    difficulty = blueprint.difficulty,
+                    vibe = blueprint.vibe,
+                    theme = blueprint.theme.label,
+                    mode = blueprint.mode.label,
+                    durationMinutes = actualDuration,
+                    source = QuestSource.API,
+                )
+                Log.i(TAG, "API quest created: id=${quest.id}, title=${quest.title}")
+                QuestCreationResult(quest, QuestSource.API, "API 生成")
+            }
+            is ApiGenerationResult.Fallback -> {
+                Log.w(TAG, "API quest fallback: ${result.message}")
+                val quest = createQuest(blueprint, QuestSource.TEMPLATE)
+                QuestCreationResult(quest, QuestSource.TEMPLATE, result.message)
             }
         }
     }

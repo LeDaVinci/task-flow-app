@@ -91,6 +91,7 @@ fun QuestScreen(viewModel: QuestViewModel) {
                     onRollChill = { viewModel.rollQuest(vibe = "chill", intensity = "chill") },
                     onRollChaos = { viewModel.rollQuest(vibe = "chaos", intensity = "chaotic", theme = "adventure") },
                     onRollLocalModel = { viewModel.rollQuestWithLocalModel(vibe = "chaos", intensity = "chaotic", theme = "story") },
+                    onRollApi = { viewModel.rollQuestWithApi(vibe = "chaos", intensity = "chaotic", theme = "story") },
                     onSummonBoss = viewModel::summonBossQuest,
                     onRefreshLocalModelStatus = viewModel::refreshLocalModelStatus,
                 )
@@ -143,6 +144,7 @@ private fun HeroPanel(
     onRollChill: () -> Unit,
     onRollChaos: () -> Unit,
     onRollLocalModel: () -> Unit,
+    onRollApi: () -> Unit,
     onSummonBoss: () -> Unit,
     onRefreshLocalModelStatus: () -> Unit,
 ) {
@@ -220,15 +222,25 @@ private fun HeroPanel(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     ActionButton(
+                        text = "API 生成",
+                        icon = { Icon(Icons.Filled.AutoAwesome, contentDescription = null) },
+                        onClick = onRollApi,
+                    )
+                    ActionButton(
                         text = "本地生成",
                         icon = { Icon(Icons.Filled.AutoAwesome, contentDescription = null) },
                         onClick = onRollLocalModel,
                     )
-                    ActionButton(
-                        text = "召唤 Boss",
-                        icon = { Icon(Icons.Outlined.MilitaryTech, contentDescription = null) },
-                        onClick = onSummonBoss,
-                    )
+                }
+                Button(
+                    onClick = onSummonBoss,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 56.dp),
+                ) {
+                    Icon(Icons.Outlined.MilitaryTech, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text("召唤 Boss")
                 }
             }
         }

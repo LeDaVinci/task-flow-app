@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -5,6 +7,23 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
 }
+
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use(::load)
+    }
+}
+
+fun localConfigValue(name: String, fallback: String = ""): String =
+    localProperties.getProperty(name).orEmpty().trim().ifBlank { fallback }
+
+fun String.asBuildConfigString(): String =
+    replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+
+val taskApiKey = localConfigValue("taskflowApiKey")
+val taskApiBaseUrl = localConfigValue("taskflowApiBaseUrl", "https://token-plan-cn.xiaomimimo.com/v1")
+val taskApiModel = localConfigValue("taskflowApiModel", "mimo-v2-flash")
 
 ksp {
     arg("appfunctions:aggregateAppFunctions", "true")
@@ -22,6 +41,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "TASK_API_KEY", "\"${taskApiKey.asBuildConfigString()}\"")
+        buildConfigField("String", "TASK_API_BASE_URL", "\"${taskApiBaseUrl.asBuildConfigString()}\"")
+        buildConfigField("String", "TASK_API_MODEL", "\"${taskApiModel.asBuildConfigString()}\"")
     }
 
     buildTypes {
@@ -46,6 +68,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

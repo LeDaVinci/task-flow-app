@@ -163,6 +163,20 @@ class QuestFunctions(
     }
 
     /**
+     * 使用 OpenAI 兼容 API 生成一个任务；接口不可用时自动回退到模板任务。
+     */
+    @AppFunction(isDescribedByKDoc = true)
+    suspend fun rollQuestWithApi(
+        context: AppFunctionContext,
+        request: QuestRollRequest,
+    ): Quest = repository.rollQuestWithApi(
+        vibe = request.vibe ?: "random",
+        intensity = request.intensity ?: "spicy",
+        theme = request.theme,
+        durationMinutes = request.durationMinutes,
+    ).quest
+
+    /**
      * 查询 app 内本地模型当前状态。
      */
     @AppFunction(isDescribedByKDoc = true)
