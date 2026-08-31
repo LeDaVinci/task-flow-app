@@ -2,10 +2,10 @@ package com.taskflow.app.ai
 
 import android.content.Context
 import android.os.Build
-import android.util.Log
 import androidx.core.content.edit
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import com.taskflow.app.data.QuestBlueprint
+import com.taskflow.app.logging.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -61,7 +61,7 @@ class LocalModelTaskGenerator(
     suspend fun setPreferredModelPath(path: String?): LocalModelStatus {
         val normalized = path?.trim().orEmpty().ifBlank { null }
         prefs.edit { putString(KEY_MODEL_PATH, normalized) }
-        Log.i(TAG, "Preferred model path updated: $normalized")
+        AppLog.i("LocalModel", "preferred model path updated: $normalized")
         closeLoadedModel()
         return checkAvailability()
     }
@@ -74,7 +74,7 @@ class LocalModelTaskGenerator(
             )
 
         knownUnsupportedReason(modelFile)?.let { reason ->
-            Log.w(TAG, "Skipping unsupported local model: path=${modelFile.absolutePath}, reason=$reason")
+            AppLog.w("LocalModel", "skipping unsupported model: path=${modelFile.absolutePath}, reason=$reason")
             return@withContext LocalModelStatus(
                 availability = LocalModelAvailability.ERROR,
                 message = reason,
@@ -89,10 +89,10 @@ class LocalModelTaskGenerator(
                 message = "本地模型已就绪: ${modelFile.name}",
                 modelPath = modelFile.absolutePath,
             ).also {
-                Log.i(TAG, "Local model ready: path=${modelFile.absolutePath}")
+                AppLog.i("LocalModel", "model ready: path=${modelFile.absolutePath}")
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "checkAvailability failed: path=${modelFile.absolutePath}", t)
+            AppLog.w("LocalModel", "availability check failed: path=${modelFile.absolutePath}", t)
             LocalModelStatus(
                 availability = LocalModelAvailability.ERROR,
                 message = "本地模型初始化失败: ${t.message ?: t.javaClass.simpleName}",
@@ -117,7 +117,7 @@ class LocalModelTaskGenerator(
             )
 
         knownUnsupportedReason(modelFile)?.let { reason ->
-            Log.w(TAG, "Refusing unsupported local model: path=${modelFile.absolutePath}, reason=$reason")
+            AppLog.w("LocalModel", "refusing unsupported model: path=${modelFile.absolutePath}, reason=$reason")
             return@withContext LocalGenerationResult.Fallback(
                 LocalModelStatus(
                     availability = LocalModelAvailability.ERROR,
@@ -157,10 +157,10 @@ class LocalModelTaskGenerator(
             var draft: LocalQuestDraft? = null
             for ((index, prompt) in prompts.withIndex()) {
                 val attempt = index + 1
-                Log.i(TAG, "Prompt snapshot [attempt=$attempt]: $prompt")
+                AppLog.i("LocalModel", "prompt snapshot [attempt=$attempt]: $prompt")
                 val response = model.generateResponse(prompt)
                 val normalizedResponse = response.trim()
-                Log.i(TAG, "Raw model response [attempt=$attempt]: ${normalizedResponse.ifBlank { "<empty>" }}")
+                AppLog.i("LocalModel", "raw model response [attempt=$attempt]: ${normalizedResponse.ifBlank { "<empty>" }}")
                 val parsed = parseDraftOrNull(
                     raw = normalizedResponse,
                     vibe = vibe,
@@ -179,7 +179,7 @@ class LocalModelTaskGenerator(
                         avoidTitles = avoidTitles,
                     )
                     draft = sanitized
-                    Log.i(TAG, "Parsed draft [attempt=$attempt]: title=${sanitized.title}, difficulty=${sanitized.difficulty}")
+                    AppLog.i("LocalModel", "parsed draft [attempt=$attempt]: title=${sanitized.title}, difficulty=${sanitized.difficulty}")
                     break
                 }
                 lastFailure = normalizedResponse.ifBlank { "empty response" }
@@ -191,7 +191,7 @@ class LocalModelTaskGenerator(
                 modelPath = modelFile.absolutePath,
             )
         } catch (t: Throwable) {
-            Log.w(TAG, "generateQuest failed: path=${modelFile.absolutePath}", t)
+            AppLog.w("LocalModel", "generation failed: path=${modelFile.absolutePath}", t)
             LocalGenerationResult.Fallback(
                 LocalModelStatus(
                     availability = LocalModelAvailability.ERROR,
@@ -224,7 +224,7 @@ class LocalModelTaskGenerator(
             )
 
         knownUnsupportedReason(modelFile)?.let { reason ->
-            Log.w(TAG, "Refusing unsupported local model: path=${modelFile.absolutePath}, reason=$reason")
+            AppLog.w("LocalModel", "refusing unsupported model: path=${modelFile.absolutePath}, reason=$reason")
             return@withContext LocalGenerationResult.Fallback(
                 LocalModelStatus(
                     availability = LocalModelAvailability.ERROR,
@@ -244,9 +244,9 @@ class LocalModelTaskGenerator(
             var draft: LocalQuestDraft? = null
             for ((index, prompt) in prompts.withIndex()) {
                 val attempt = index + 1
-                Log.i(TAG, "Blueprint prompt [attempt=$attempt]: $prompt")
+                AppLog.i("LocalModel", "blueprint prompt [attempt=$attempt]: $prompt")
                 val response = model.generateResponse(prompt).trim()
-                Log.i(TAG, "Blueprint response [attempt=$attempt]: ${response.ifBlank { "<empty>" }}")
+                AppLog.i("LocalModel", "blueprint response [attempt=$attempt]: ${response.ifBlank { "<empty>" }}")
                 val parsed = parseDraftOrNull(
                     raw = response,
                     vibe = blueprint.vibe,
@@ -257,7 +257,7 @@ class LocalModelTaskGenerator(
                 )
                 if (parsed != null) {
                     draft = sanitizeBlueprintDraft(parsed, blueprint, avoidTitles)
-                    Log.i(TAG, "Blueprint draft parsed [attempt=$attempt]: title=${draft.title}")
+                    AppLog.i("LocalModel", "blueprint draft parsed [attempt=$attempt]: title=${draft.title}")
                     break
                 }
                 lastFailure = response.ifBlank { "empty response" }
@@ -269,7 +269,7 @@ class LocalModelTaskGenerator(
                 modelPath = modelFile.absolutePath,
             )
         } catch (t: Throwable) {
-            Log.w(TAG, "polishBlueprint failed: path=${modelFile.absolutePath}", t)
+            AppLog.w("LocalModel", "blueprint polish failed: path=${modelFile.absolutePath}", t)
             LocalGenerationResult.Fallback(
                 LocalModelStatus(
                     availability = LocalModelAvailability.ERROR,
@@ -283,7 +283,7 @@ class LocalModelTaskGenerator(
     private suspend fun ensureModel(modelFile: File): LlmInference = modelLock.withLock {
         val current = llmInference
         if (current != null && loadedModelPath == modelFile.absolutePath) {
-            Log.i(TAG, "Reusing loaded model: ${modelFile.absolutePath}")
+            AppLog.i("LocalModel", "reusing loaded model: ${modelFile.absolutePath}")
             return@withLock current
         }
 
@@ -298,7 +298,7 @@ class LocalModelTaskGenerator(
         return@withLock LlmInference.createFromOptions(context, options).also {
             loadedModelPath = modelFile.absolutePath
             llmInference = it
-            Log.i(TAG, "Local model loaded: ${modelFile.absolutePath}")
+            AppLog.i("LocalModel", "model loaded: ${modelFile.absolutePath}")
         }
     }
 
@@ -316,7 +316,7 @@ class LocalModelTaskGenerator(
                 return preferredFile
             }
             if (preferredFile.exists()) {
-                Log.w(TAG, "Preferred model is unsupported, falling back to scanned candidates: ${preferredFile.absolutePath}")
+                AppLog.w("LocalModel", "preferred model is unsupported; scanning candidates: ${preferredFile.absolutePath}")
             }
         }
 
@@ -558,7 +558,7 @@ class LocalModelTaskGenerator(
     ): LocalQuestDraft? {
         val jsonText = extractJsonOrNull(raw) ?: return null
         return runCatching {
-            Log.i(TAG, "Extracted JSON: $jsonText")
+            AppLog.i("LocalModel", "extracted JSON: $jsonText")
             val payload = JSONObject(jsonText)
             LocalQuestDraft(
                 title = payload.getString("title"),
@@ -808,7 +808,6 @@ class LocalModelTaskGenerator(
     }
 
     companion object {
-        private const val TAG = "LocalModelTaskGen"
         private const val PREFS_NAME = "local_model_prefs"
         private const val KEY_MODEL_PATH = "preferred_model_path"
     }

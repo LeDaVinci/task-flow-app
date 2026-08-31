@@ -1,11 +1,11 @@
 package com.taskflow.app.data
 
-import android.util.Log
 import com.taskflow.app.ai.LocalGenerationResult
 import com.taskflow.app.ai.LocalModelStatus
 import com.taskflow.app.ai.LocalModelTaskGenerator
 import com.taskflow.app.ai.ApiGenerationResult
 import com.taskflow.app.ai.OpenAiApiTaskGenerator
+import com.taskflow.app.logging.AppLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -91,11 +91,11 @@ class QuestRepository(
                     durationMinutes = actualDuration,
                     source = QuestSource.LOCAL_MODEL,
                 )
-                Log.i(TAG, "Local model generated quest successfully: modelPath=${result.modelPath}, title=${result.draft.title}")
+                AppLog.i("QuestRepository", "local model generated: modelPath=${result.modelPath}, title=${result.draft.title}")
                 QuestCreationResult(quest, QuestSource.LOCAL_MODEL, "本地模型: ${result.modelPath}")
             }
             is LocalGenerationResult.Fallback -> {
-                Log.i(TAG, "Local model fallback: ${result.status.message}")
+                AppLog.i("QuestRepository", "local model fallback: ${result.status.message}")
                 val quest = createQuest(blueprint, QuestSource.TEMPLATE)
                 QuestCreationResult(quest, QuestSource.TEMPLATE, result.status.message)
             }
@@ -134,11 +134,11 @@ class QuestRepository(
                     durationMinutes = actualDuration,
                     source = QuestSource.API,
                 )
-                Log.i(TAG, "API quest created: id=${quest.id}, title=${quest.title}")
+                AppLog.i("QuestRepository", "API quest created: id=${quest.id}, title=${quest.title}")
                 QuestCreationResult(quest, QuestSource.API, "API 生成")
             }
             is ApiGenerationResult.Fallback -> {
-                Log.w(TAG, "API quest fallback: ${result.message}")
+                AppLog.w("QuestRepository", "API quest fallback: ${result.message}")
                 val quest = createQuest(blueprint, QuestSource.TEMPLATE)
                 QuestCreationResult(quest, QuestSource.TEMPLATE, result.message)
             }
@@ -173,7 +173,7 @@ class QuestRepository(
             }
         }
         if (completed != null) {
-            Log.i(TAG, "Quest completed: id=$questId")
+            AppLog.i("QuestRepository", "quest completed: id=$questId")
         }
         return completed
     }
@@ -190,7 +190,7 @@ class QuestRepository(
             }
         }
         if (archived != null) {
-            Log.i(TAG, "Quest archived: id=$questId")
+            AppLog.i("QuestRepository", "quest archived: id=$questId")
         }
         return archived
     }
@@ -340,7 +340,7 @@ class QuestRepository(
             createdAt = System.currentTimeMillis(),
         )
         _quests.update { listOf(quest) + it }
-        Log.i(TAG, "Quest rolled: id=${quest.id}, difficulty=${quest.difficulty}, vibe=${quest.vibe}, source=$source")
+        AppLog.i("QuestRepository", "quest rolled: id=${quest.id}, difficulty=${quest.difficulty}, vibe=${quest.vibe}, source=$source")
         return quest
     }
 
@@ -350,7 +350,4 @@ class QuestRepository(
         return title.trim().removePrefix("\"").removeSuffix("\"")
     }
 
-    companion object {
-        private const val TAG = "QuestRepository"
-    }
 }

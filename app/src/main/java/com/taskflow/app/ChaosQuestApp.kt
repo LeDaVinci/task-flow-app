@@ -1,12 +1,12 @@
 package com.taskflow.app
 
 import android.app.Application
-import android.util.Log
 import androidx.appfunctions.service.AppFunctionConfiguration
 import com.taskflow.app.ai.LocalModelTaskGenerator
 import com.taskflow.app.ai.OpenAiApiTaskGenerator
 import com.taskflow.app.data.QuestRepository
 import com.taskflow.app.functions.QuestFunctions
+import com.taskflow.app.logging.AppLog
 
 class ChaosQuestApp : Application(), AppFunctionConfiguration.Provider {
 
@@ -17,7 +17,7 @@ class ChaosQuestApp : Application(), AppFunctionConfiguration.Provider {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        Log.i(TAG, "ChaosQuestApp initialized")
+        AppLog.i("App", "initialized")
     }
 
     override val appFunctionConfiguration: AppFunctionConfiguration by lazy {
@@ -29,8 +29,6 @@ class ChaosQuestApp : Application(), AppFunctionConfiguration.Provider {
     }
 
     companion object {
-        private const val TAG = "ChaosQuestApp"
-
         lateinit var instance: ChaosQuestApp
             private set
     }

@@ -1,12 +1,12 @@
 package com.taskflow.app.functions
 
-import android.util.Log
 import androidx.appfunctions.AppFunctionContext
 import androidx.appfunctions.AppFunctionSerializable
 import androidx.appfunctions.service.AppFunction
 import com.taskflow.app.data.Quest
 import com.taskflow.app.data.QuestBoardSummary
 import com.taskflow.app.data.QuestRepository
+import com.taskflow.app.logging.AppLog
 
 @AppFunctionSerializable
 data class QuestRollRequest(
@@ -59,7 +59,7 @@ class QuestFunctions(
         context: AppFunctionContext,
         request: QuestRollRequest,
     ): Quest {
-        Log.i(TAG, "rollQuest called: vibe=${request.vibe}, intensity=${request.intensity}, duration=${request.durationMinutes}")
+        AppLog.i("AppFunctions", "rollQuest: vibe=${request.vibe}, intensity=${request.intensity}, duration=${request.durationMinutes}")
         return repository.rollQuest(
             vibe = request.vibe ?: "random",
             intensity = request.intensity ?: "spicy",
@@ -79,7 +79,7 @@ class QuestFunctions(
         context: AppFunctionContext,
         theme: String? = null,
     ): Quest {
-        Log.i(TAG, "summonBossQuest called: theme=$theme")
+        AppLog.i("AppFunctions", "summonBossQuest: theme=$theme")
         return repository.rollQuest(
             vibe = theme ?: "resolve",
             intensity = "boss",
@@ -100,7 +100,7 @@ class QuestFunctions(
         context: AppFunctionContext,
         request: CompleteQuestRequest,
     ): Quest? {
-        Log.i(TAG, "completeQuest called: id=${request.questId}")
+        AppLog.i("AppFunctions", "completeQuest: id=${request.questId}")
         return repository.completeQuest(
             questId = request.questId,
             reaction = request.reaction,
@@ -118,7 +118,7 @@ class QuestFunctions(
         context: AppFunctionContext,
         questId: String,
     ): Quest? {
-        Log.i(TAG, "rerollQuest called: id=$questId")
+        AppLog.i("AppFunctions", "rerollQuest: id=$questId")
         return repository.rerollQuest(questId)
     }
 
@@ -153,7 +153,7 @@ class QuestFunctions(
         context: AppFunctionContext,
         request: QuestRollRequest,
     ): Quest {
-        Log.i(TAG, "rollQuestWithLocalModel called: vibe=${request.vibe}, intensity=${request.intensity}")
+        AppLog.i("AppFunctions", "rollQuestWithLocalModel: vibe=${request.vibe}, intensity=${request.intensity}")
         return repository.rollQuestWithLocalModel(
             vibe = request.vibe ?: "random",
             intensity = request.intensity ?: "spicy",
@@ -224,7 +224,4 @@ class QuestFunctions(
         context: AppFunctionContext,
     ): LocalModelStatusResponse = getLocalModelStatus(context)
 
-    companion object {
-        private const val TAG = "QuestFunctions"
-    }
 }

@@ -1,8 +1,8 @@
 package com.taskflow.app.ai
 
-import android.util.Log
 import com.taskflow.app.BuildConfig
 import com.taskflow.app.data.QuestBlueprint
+import com.taskflow.app.logging.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -32,26 +32,26 @@ class OpenAiApiTaskGenerator(
         avoidTitles: List<String>,
     ): ApiGenerationResult = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) {
-            Log.w(TAG, "API generation skipped: API key is not configured")
+            AppLog.w("ApiTask", "generation skipped: API key is not configured")
             return@withContext ApiGenerationResult.Fallback("API 密钥未配置")
         }
         if (baseUrl.isBlank() || model.isBlank()) {
-            Log.w(TAG, "API generation skipped: base URL or model is not configured")
+            AppLog.w("ApiTask", "generation skipped: base URL or model is not configured")
             return@withContext ApiGenerationResult.Fallback("API 配置不完整")
         }
 
         try {
-            Log.i(TAG, "API generation started: model=$model, title=${blueprint.title}, duration=${blueprint.durationMinutes}")
+            AppLog.i("ApiTask", "generation started: model=$model, title=${blueprint.title}, duration=${blueprint.durationMinutes}")
             val content = requestCompletion(blueprint, avoidTitles)
             val draft = parseDraft(content, blueprint, avoidTitles)
             if (draft == null) {
-                Log.w(TAG, "API generation fallback: response could not be parsed")
+                AppLog.w("ApiTask", "generation fallback: response could not be parsed")
                 return@withContext ApiGenerationResult.Fallback("API 返回内容无法解析")
             }
-            Log.i(TAG, "API generation succeeded: title=${draft.title}")
+            AppLog.i("ApiTask", "generation succeeded: title=${draft.title}")
             ApiGenerationResult.Success(draft)
         } catch (error: Exception) {
-            Log.w(TAG, "API generation failed", error)
+            AppLog.w("ApiTask", "generation failed", error)
             ApiGenerationResult.Fallback("API 生成失败: ${error.message ?: error.javaClass.simpleName}")
         }
     }
@@ -86,7 +86,7 @@ class OpenAiApiTaskGenerator(
             connection.outputStream.bufferedWriter(Charsets.UTF_8).use { it.write(payload.toString()) }
 
             val code = connection.responseCode
-            Log.i(TAG, "API response received: HTTP $code")
+            AppLog.i("ApiTask", "response received: HTTP $code")
             val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
                 ?.bufferedReader(Charsets.UTF_8)
                 ?.use { it.readText() }
@@ -138,8 +138,4 @@ class OpenAiApiTaskGenerator(
     private fun extractErrorMessage(body: String): String = runCatching {
         JSONObject(body).optJSONObject("error")?.optString("message")
     }.getOrNull().orEmpty().ifBlank { body.take(240) }
-
-    private companion object {
-        const val TAG = "OpenAiApiTaskGen"
-    }
 }
