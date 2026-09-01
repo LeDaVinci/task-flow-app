@@ -24,6 +24,16 @@ fun String.asBuildConfigString(): String =
 val taskApiKey = localConfigValue("taskflowApiKey")
 val taskApiBaseUrl = localConfigValue("taskflowApiBaseUrl", "https://token-plan-cn.xiaomimimo.com/v1")
 val taskApiModel = localConfigValue("taskflowApiModel", "mimo-v2-flash")
+val releaseStoreFilePath = localConfigValue("releaseStoreFile")
+val releaseStorePassword = localConfigValue("releaseStorePassword")
+val releaseKeyAlias = localConfigValue("releaseKeyAlias")
+val releaseKeyPassword = localConfigValue("releaseKeyPassword")
+val hasReleaseSigning = listOf(
+    releaseStoreFilePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { it.isNotBlank() } && rootProject.file(releaseStoreFilePath).isFile
 
 ksp {
     arg("appfunctions:aggregateAppFunctions", "true")
@@ -46,8 +56,22 @@ android {
         buildConfigField("String", "TASK_API_MODEL", "\"${taskApiModel.asBuildConfigString()}\"")
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFilePath)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

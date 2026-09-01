@@ -1,15 +1,16 @@
 package com.taskflow.app.data
 
+import com.taskflow.app.ai.ApiGenerationResult
 import com.taskflow.app.ai.LocalGenerationResult
 import com.taskflow.app.ai.LocalModelStatus
 import com.taskflow.app.ai.LocalModelTaskGenerator
-import com.taskflow.app.ai.ApiGenerationResult
 import com.taskflow.app.ai.OpenAiApiTaskGenerator
 import com.taskflow.app.logging.AppLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import java.util.Calendar
 import kotlin.random.Random
 
 data class QuestCreationResult(
@@ -27,12 +28,13 @@ enum class QuestSource {
 class QuestRepository(
     private val localModelTaskGenerator: LocalModelTaskGenerator,
     private val apiTaskGenerator: OpenAiApiTaskGenerator,
+    private val stateStore: QuestStateStore,
     private val planner: QuestBlueprintPlanner = QuestBlueprintPlanner(),
 ) {
 
     private val random = Random(System.currentTimeMillis())
-
-    private val _quests = MutableStateFlow(seedQuests())
+    private var totalXp = stateStore.loadTotalXp()
+    private val _quests = MutableStateFlow(loadInitialQuests())
     val quests: StateFlow<List<Quest>> = _quests.asStateFlow()
 
     fun rollQuest(
@@ -42,18 +44,8 @@ class QuestRepository(
         forceBoss: Boolean = false,
         theme: String? = null,
     ): Quest {
-        val normalizedVibe = vibe.ifBlank { "random" }.lowercase()
-        val normalizedIntensity = intensity.ifBlank { "spicy" }.lowercase()
-        val actualDuration = durationMinutes ?: suggestedDuration(normalizedIntensity, forceBoss)
-        val blueprint = planner.plan(
-            vibe = normalizedVibe,
-            intensity = normalizedIntensity,
-            durationMinutes = actualDuration,
-            forceBoss = forceBoss,
-            requestedTheme = theme,
-            avoidTitles = _quests.value.take(8).map { it.title },
-        )
-        return createQuest(blueprint, QuestSource.TEMPLATE)
+        activeQuest()?.let { return it }
+        return createTemplateQuest(vibe, intensity, durationMinutes, forceBoss, theme)
     }
 
     suspend fun rollQuestWithLocalModel(
@@ -63,42 +55,22 @@ class QuestRepository(
         forceBoss: Boolean = false,
         theme: String? = null,
     ): QuestCreationResult {
-        val normalizedVibe = vibe.ifBlank { "random" }.lowercase()
-        val normalizedIntensity = intensity.ifBlank { "spicy" }.lowercase()
-        val actualDuration = durationMinutes ?: suggestedDuration(normalizedIntensity, forceBoss)
-        val avoidTitles = _quests.value.take(8).map { it.title }
-        val blueprint = planner.plan(
-            vibe = normalizedVibe,
-            intensity = normalizedIntensity,
-            durationMinutes = actualDuration,
-            forceBoss = forceBoss,
-            requestedTheme = theme,
-            avoidTitles = avoidTitles,
-        )
-        return when (val result = localModelTaskGenerator.polishBlueprint(
-            blueprint = blueprint,
-            avoidTitles = avoidTitles,
-        )) {
+        activeQuest()?.let { return QuestCreationResult(it, QuestSource.TEMPLATE, "已有进行中的支线") }
+        val blueprint = planBlueprint(vibe, intensity, durationMinutes, forceBoss, theme)
+        return when (val result = localModelTaskGenerator.polishBlueprint(blueprint, recentTitles())) {
             is LocalGenerationResult.Success -> {
                 val quest = createQuest(
                     title = normalizeLocalTitle(result.draft.title),
                     description = result.draft.description,
                     reward = result.draft.reward,
-                    difficulty = blueprint.difficulty,
-                    vibe = blueprint.vibe,
-                    theme = blueprint.theme.label,
-                    mode = blueprint.mode.label,
-                    durationMinutes = actualDuration,
+                    blueprint = blueprint,
                     source = QuestSource.LOCAL_MODEL,
+                    replacing = false,
                 )
-                AppLog.i("QuestRepository", "local model generated: modelPath=${result.modelPath}, title=${result.draft.title}")
-                QuestCreationResult(quest, QuestSource.LOCAL_MODEL, "本地模型: ${result.modelPath}")
+                AppLog.i("QuestRepository", "local model generated: title=${quest.title}")
+                QuestCreationResult(quest, QuestSource.LOCAL_MODEL)
             }
-            is LocalGenerationResult.Fallback -> {
-                AppLog.i("QuestRepository", "local model fallback: ${result.status.message}")
-                val quest = createQuest(blueprint, QuestSource.TEMPLATE)
-                QuestCreationResult(quest, QuestSource.TEMPLATE, result.status.message)
-            }
+            is LocalGenerationResult.Fallback -> fallbackToTemplate(blueprint, result.status.message, replacing = false)
         }
     }
 
@@ -109,245 +81,227 @@ class QuestRepository(
         forceBoss: Boolean = false,
         theme: String? = null,
     ): QuestCreationResult {
-        val normalizedVibe = vibe.ifBlank { "random" }.lowercase()
-        val normalizedIntensity = intensity.ifBlank { "spicy" }.lowercase()
-        val actualDuration = durationMinutes ?: suggestedDuration(normalizedIntensity, forceBoss)
-        val avoidTitles = _quests.value.take(8).map { it.title }
-        val blueprint = planner.plan(
-            vibe = normalizedVibe,
-            intensity = normalizedIntensity,
-            durationMinutes = actualDuration,
-            forceBoss = forceBoss,
-            requestedTheme = theme,
-            avoidTitles = avoidTitles,
-        )
-        return when (val result = apiTaskGenerator.polishBlueprint(blueprint, avoidTitles)) {
-            is ApiGenerationResult.Success -> {
-                val quest = createQuest(
-                    title = result.draft.title,
-                    description = result.draft.description,
-                    reward = result.draft.reward,
-                    difficulty = blueprint.difficulty,
-                    vibe = blueprint.vibe,
-                    theme = blueprint.theme.label,
-                    mode = blueprint.mode.label,
-                    durationMinutes = actualDuration,
-                    source = QuestSource.API,
-                )
-                AppLog.i("QuestRepository", "API quest created: id=${quest.id}, title=${quest.title}")
-                QuestCreationResult(quest, QuestSource.API, "API 生成")
-            }
-            is ApiGenerationResult.Fallback -> {
-                AppLog.w("QuestRepository", "API quest fallback: ${result.message}")
-                val quest = createQuest(blueprint, QuestSource.TEMPLATE)
-                QuestCreationResult(quest, QuestSource.TEMPLATE, result.message)
-            }
-        }
+        activeQuest()?.let { return QuestCreationResult(it, QuestSource.TEMPLATE, "已有进行中的支线") }
+        return generateApiQuest(vibe, intensity, durationMinutes, forceBoss, theme, replacing = false)
     }
 
-    fun rerollQuest(questId: String): Quest? {
-        val original = findQuest(questId) ?: return null
-        archiveQuest(questId)
-        return rollQuest(
-            vibe = original.vibe,
-            intensity = original.difficulty,
-            durationMinutes = original.durationMinutes,
-            forceBoss = original.difficulty == "boss",
-            theme = original.theme,
-        )
+    suspend fun rerollQuest(questId: String): Quest? {
+        val original = activeQuest()?.takeIf { it.id == questId } ?: return null
+        return if (original.source == QuestSource.API.name) {
+            generateApiQuest(
+                vibe = original.vibe,
+                intensity = original.difficulty,
+                durationMinutes = original.durationMinutes,
+                forceBoss = original.difficulty == "boss",
+                theme = original.theme,
+                replacing = true,
+            ).quest
+        } else {
+            createTemplateQuest(
+                vibe = original.vibe,
+                intensity = original.difficulty,
+                durationMinutes = original.durationMinutes,
+                forceBoss = original.difficulty == "boss",
+                theme = original.theme,
+                replacing = true,
+            )
+        }
     }
 
     fun completeQuest(questId: String, reaction: String? = null): Quest? {
-        var completed: Quest? = null
-        _quests.update { quests ->
-            quests.map { quest ->
-                if (quest.id == questId && quest.status == "active") {
-                    quest.copy(
-                        status = "completed",
-                        completedAt = System.currentTimeMillis(),
-                        reaction = reaction?.trim().takeUnless { it.isNullOrBlank() },
-                    ).also { completed = it }
-                } else {
-                    quest
-                }
-            }
-        }
-        if (completed != null) {
-            AppLog.i("QuestRepository", "quest completed: id=$questId")
-        }
+        val active = activeQuest()?.takeIf { it.id == questId } ?: return null
+        val completed = active.copy(
+            status = "completed",
+            completedAt = System.currentTimeMillis(),
+            reaction = reaction?.trim().takeUnless { it.isNullOrBlank() },
+        )
+        totalXp += active.xp
+        stateStore.saveTotalXp(totalXp)
+        stateStore.clearActiveQuest()
+        _quests.update { quests -> listOf(completed) + quests.filterNot { it.status == "active" } }
+        AppLog.i("QuestRepository", "quest completed: id=$questId, totalXp=$totalXp")
         return completed
     }
 
     fun archiveQuest(questId: String): Quest? {
-        var archived: Quest? = null
-        _quests.update { quests ->
-            quests.map { quest ->
-                if (quest.id == questId && quest.status == "active") {
-                    quest.copy(status = "archived").also { archived = it }
-                } else {
-                    quest
-                }
-            }
-        }
-        if (archived != null) {
-            AppLog.i("QuestRepository", "quest archived: id=$questId")
-        }
-        return archived
+        val active = activeQuest()?.takeIf { it.id == questId } ?: return null
+        stateStore.clearActiveQuest()
+        _quests.update { quests -> quests.filterNot { it.status == "active" } }
+        AppLog.i("QuestRepository", "quest archived: id=$questId")
+        return active.copy(status = "archived")
+    }
+
+    fun expireActiveQuestIfNeeded(): Boolean {
+        val active = activeQuest() ?: return false
+        if (isToday(active.createdAt)) return false
+        stateStore.clearActiveQuest()
+        _quests.update { quests -> quests.filterNot { it.status == "active" } }
+        AppLog.i("QuestRepository", "expired previous-day quest: id=${active.id}")
+        return true
     }
 
     fun findQuest(questId: String): Quest? = _quests.value.firstOrNull { it.id == questId }
 
-    fun listActiveQuests(): List<Quest> = _quests.value.filter { it.status == "active" }
+    fun listActiveQuests(): List<Quest> = listOfNotNull(activeQuest())
 
     fun boardSummary(): QuestBoardSummary {
         val all = _quests.value
         val active = all.filter { it.status == "active" }
-        val completed = all.filter { it.status == "completed" }
         return QuestBoardSummary(
             activeCount = active.size,
-            completedCount = completed.size,
-            bossCount = all.count { it.difficulty == "boss" && it.status == "active" },
-            totalXp = completed.sumOf { it.xp },
-            highlightedTitles = active.take(3).map { it.title },
+            completedCount = all.count { it.status == "completed" },
+            bossCount = active.count { it.difficulty == "boss" },
+            totalXp = totalXp,
+            highlightedTitles = active.map { it.title },
         )
-    }
-
-    private fun seedQuests(): List<Quest> = listOf(
-        seedQuest(
-            title = "今日预告片 · 给今天起片名",
-            description = "给今天起一个片名，再写三句预告词，把这 8 分钟当成一段短片并存进备忘录。",
-            reward = "创意值 +18 XP",
-            difficulty = "spicy",
-            vibe = "chaos",
-            theme = QuestTheme.STORY.label,
-            mode = QuestMode.DIRECTOR.label,
-            durationMinutes = 8,
-            xp = 26,
-        ),
-        seedQuest(
-            title = "线索追踪 · 天空取样",
-            description = "看窗外 2 分钟，记下颜色和形状变化，最后在备忘录写两个观察词。",
-            reward = "天气值 +16 XP",
-            difficulty = "chill",
-            vibe = "chill",
-            theme = QuestTheme.NATURE.label,
-            mode = QuestMode.DETECTIVE.label,
-            durationMinutes = 6,
-            xp = 18,
-        ),
-        seedQuest(
-            title = "Boss 最终回合 · 角落排雷",
-            description = "选桌面一个最乱的小角，清掉 5 个无效物品，中途不允许改目标。",
-            reward = "Boss 宝箱: 秩序值 +62 XP",
-            difficulty = "boss",
-            vibe = "resolve",
-            theme = QuestTheme.TIDY.label,
-            mode = QuestMode.BOSS.label,
-            durationMinutes = 12,
-            xp = 40,
-        ),
-    )
-
-    private fun seedQuest(
-        title: String,
-        description: String,
-        difficulty: String,
-        vibe: String,
-        theme: String,
-        mode: String,
-        durationMinutes: Int,
-        xp: Int,
-        reward: String,
-    ): Quest = Quest(
-        id = buildId(),
-        title = title,
-        description = description,
-        difficulty = difficulty,
-        reward = reward,
-        status = "active",
-        durationMinutes = durationMinutes,
-        vibe = vibe,
-        theme = theme,
-        mode = mode,
-        xp = xp,
-        createdAt = System.currentTimeMillis(),
-    )
-
-    private fun normalizeDifficulty(intensity: String): String = when (intensity) {
-        "chill" -> "chill"
-        "chaotic" -> "chaotic"
-        else -> "spicy"
     }
 
     suspend fun getLocalModelStatus(): LocalModelStatus = localModelTaskGenerator.checkAvailability()
 
     suspend fun setLocalModelPath(path: String?): LocalModelStatus = localModelTaskGenerator.setPreferredModelPath(path)
 
-    private fun suggestedDuration(intensity: String, forceBoss: Boolean): Int = when {
-        forceBoss -> 25
-        intensity == "chill" -> 8
-        intensity == "chaotic" -> 15
-        else -> 12
+    private suspend fun generateApiQuest(
+        vibe: String,
+        intensity: String,
+        durationMinutes: Int?,
+        forceBoss: Boolean,
+        theme: String?,
+        replacing: Boolean,
+    ): QuestCreationResult {
+        val blueprint = planBlueprint(vibe, intensity, durationMinutes, forceBoss, theme)
+        return when (val result = apiTaskGenerator.polishBlueprint(blueprint, recentTitles(), theme)) {
+            is ApiGenerationResult.Success -> {
+                val quest = createQuest(
+                    title = result.draft.title,
+                    description = result.draft.description,
+                    reward = result.draft.reward,
+                    blueprint = blueprint,
+                    source = QuestSource.API,
+                    replacing = replacing,
+                )
+                AppLog.i("QuestRepository", "API quest ${if (replacing) "replaced" else "created"}: id=${quest.id}")
+                QuestCreationResult(quest, QuestSource.API)
+            }
+            is ApiGenerationResult.Fallback -> fallbackToTemplate(blueprint, result.message, replacing)
+        }
     }
 
-    private fun rewardXp(difficulty: String, durationMinutes: Int): Int = when (difficulty) {
-        "boss" -> 60 + durationMinutes
-        "chaotic" -> 28 + durationMinutes
-        "chill" -> 10 + durationMinutes
-        else -> 18 + durationMinutes
+    private fun createTemplateQuest(
+        vibe: String,
+        intensity: String,
+        durationMinutes: Int?,
+        forceBoss: Boolean,
+        theme: String?,
+        replacing: Boolean = false,
+    ): Quest {
+        val blueprint = planBlueprint(vibe, intensity, durationMinutes, forceBoss, theme)
+        return createQuest(
+            title = blueprint.title,
+            description = blueprint.description,
+            reward = blueprint.reward,
+            blueprint = blueprint,
+            source = QuestSource.TEMPLATE,
+            replacing = replacing,
+        )
     }
 
-    private fun buildId(): String = "quest-${System.currentTimeMillis()}-${random.nextInt(1000, 9999)}"
-
-    private fun createQuest(
+    private fun fallbackToTemplate(
         blueprint: QuestBlueprint,
-        source: QuestSource,
-    ): Quest = createQuest(
-        title = blueprint.title,
-        description = blueprint.description,
-        reward = blueprint.reward,
-        difficulty = blueprint.difficulty,
-        vibe = blueprint.vibe,
-        theme = blueprint.theme.label,
-        mode = blueprint.mode.label,
-        durationMinutes = blueprint.durationMinutes,
-        source = source,
+        message: String,
+        replacing: Boolean,
+    ): QuestCreationResult {
+        AppLog.w("QuestRepository", "API quest fallback: $message")
+        val quest = createQuest(
+            title = blueprint.title,
+            description = blueprint.description,
+            reward = blueprint.reward,
+            blueprint = blueprint,
+            source = QuestSource.TEMPLATE,
+            replacing = replacing,
+        )
+        return QuestCreationResult(quest, QuestSource.TEMPLATE, message)
+    }
+
+    private fun planBlueprint(
+        vibe: String,
+        intensity: String,
+        durationMinutes: Int?,
+        forceBoss: Boolean,
+        theme: String?,
+    ): QuestBlueprint = planner.plan(
+        vibe = vibe.ifBlank { "random" }.lowercase(),
+        intensity = intensity.ifBlank { "spicy" }.lowercase(),
+        durationMinutes = normalizeDuration(durationMinutes ?: suggestedDuration(intensity, forceBoss)),
+        forceBoss = forceBoss,
+        requestedTheme = theme,
+        avoidTitles = recentTitles(),
     )
 
     private fun createQuest(
         title: String,
         description: String,
         reward: String,
-        difficulty: String,
-        vibe: String,
-        theme: String,
-        mode: String,
-        durationMinutes: Int,
+        blueprint: QuestBlueprint,
         source: QuestSource,
+        replacing: Boolean,
     ): Quest {
+        val existing = activeQuest()
+        if (existing != null && !replacing) return existing
         val quest = Quest(
             id = buildId(),
             title = title,
             description = description,
-            difficulty = difficulty,
+            difficulty = blueprint.difficulty,
             reward = reward,
             status = "active",
-            durationMinutes = durationMinutes,
-            vibe = vibe,
-            theme = theme,
-            mode = mode,
-            xp = rewardXp(difficulty, durationMinutes),
+            durationMinutes = blueprint.durationMinutes,
+            vibe = blueprint.vibe,
+            theme = blueprint.theme.label,
+            mode = blueprint.mode.label,
+            xp = xpForDuration(blueprint.durationMinutes),
+            source = source.name,
             createdAt = System.currentTimeMillis(),
         )
-        _quests.update { listOf(quest) + it }
-        AppLog.i("QuestRepository", "quest rolled: id=${quest.id}, difficulty=${quest.difficulty}, vibe=${quest.vibe}, source=$source")
+        stateStore.saveActiveQuest(quest)
+        _quests.update { quests -> listOf(quest) + quests.filterNot { it.status == "active" } }
+        AppLog.i("QuestRepository", "quest ${if (replacing) "replaced" else "created"}: id=${quest.id}, source=$source")
         return quest
     }
 
-    private fun normalizeLocalTitle(
-        title: String,
-    ): String {
-        return title.trim().removePrefix("\"").removeSuffix("\"")
+    private fun loadInitialQuests(): List<Quest> {
+        val active = stateStore.loadActiveQuest() ?: return emptyList()
+        return if (isToday(active.createdAt)) {
+            listOf(active)
+        } else {
+            stateStore.clearActiveQuest()
+            AppLog.i("QuestRepository", "discarded previous-day quest at startup")
+            emptyList()
+        }
     }
 
+    private fun activeQuest(): Quest? = _quests.value.firstOrNull { it.status == "active" }
+
+    private fun recentTitles(): List<String> = _quests.value.take(8).map { it.title }
+
+    private fun suggestedDuration(intensity: String, forceBoss: Boolean): Int = when {
+        forceBoss -> 30
+        intensity.lowercase() == "chaotic" -> 30
+        else -> 15
+    }
+
+    private fun normalizeDuration(durationMinutes: Int): Int = if (durationMinutes <= 15) 15 else 30
+
+    private fun xpForDuration(durationMinutes: Int): Int = normalizeDuration(durationMinutes)
+
+    private fun isToday(timestamp: Long): Boolean {
+        val today = Calendar.getInstance()
+        val createdAt = Calendar.getInstance().apply { timeInMillis = timestamp }
+        return today.get(Calendar.ERA) == createdAt.get(Calendar.ERA) &&
+            today.get(Calendar.YEAR) == createdAt.get(Calendar.YEAR) &&
+            today.get(Calendar.DAY_OF_YEAR) == createdAt.get(Calendar.DAY_OF_YEAR)
+    }
+
+    private fun buildId(): String = "quest-${System.currentTimeMillis()}-${random.nextInt(1000, 9999)}"
+
+    private fun normalizeLocalTitle(title: String): String = title.trim().removePrefix("\"").removeSuffix("\"")
 }

@@ -30,6 +30,7 @@ class OpenAiApiTaskGenerator(
     suspend fun polishBlueprint(
         blueprint: QuestBlueprint,
         avoidTitles: List<String>,
+        userTheme: String? = null,
     ): ApiGenerationResult = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) {
             AppLog.w("ApiTask", "generation skipped: API key is not configured")
@@ -42,7 +43,7 @@ class OpenAiApiTaskGenerator(
 
         try {
             AppLog.i("ApiTask", "generation started: model=$model, title=${blueprint.title}, duration=${blueprint.durationMinutes}")
-            val content = requestCompletion(blueprint, avoidTitles)
+            val content = requestCompletion(blueprint, avoidTitles, userTheme)
             val draft = parseDraft(content, blueprint, avoidTitles)
             if (draft == null) {
                 AppLog.w("ApiTask", "generation fallback: response could not be parsed")
@@ -56,7 +57,11 @@ class OpenAiApiTaskGenerator(
         }
     }
 
-    private fun requestCompletion(blueprint: QuestBlueprint, avoidTitles: List<String>): String {
+    private fun requestCompletion(
+        blueprint: QuestBlueprint,
+        avoidTitles: List<String>,
+        userTheme: String?,
+    ): String {
         val payload = JSONObject()
             .put("model", model)
             .put("temperature", 0.9)
@@ -71,7 +76,7 @@ class OpenAiApiTaskGenerator(
                     .put(
                         JSONObject()
                             .put("role", "user")
-                            .put("content", buildPrompt(blueprint, avoidTitles))
+                            .put("content", buildPrompt(blueprint, avoidTitles, userTheme))
                     )
             )
 
@@ -104,8 +109,12 @@ class OpenAiApiTaskGenerator(
         }
     }
 
-    private fun buildPrompt(blueprint: QuestBlueprint, avoidTitles: List<String>): String = """
-        基于以下固定任务蓝图，只润色标题、描述和奖励，不得改变主题、模式、难度、时长和完成动作。
+    private fun buildPrompt(
+        blueprint: QuestBlueprint,
+        avoidTitles: List<String>,
+        userTheme: String?,
+    ): String = """
+        基于以下固定任务蓝图，生成一条具体、轻量、可立刻执行的中文生活任务。
         theme=${blueprint.theme.label}
         mode=${blueprint.mode.label}
         difficulty=${blueprint.difficulty}
@@ -114,6 +123,10 @@ class OpenAiApiTaskGenerator(
         description=${blueprint.description}
         reward=${blueprint.reward}
         avoidTitles=${avoidTitles.take(8).joinToString(" | ")}
+        用户主题=${userTheme?.trim().takeUnless { it.isNullOrBlank() } ?: "随机生成"}
+        约束：服务下班后的真实生活；15 到 30 分钟可完成；低风险、低成本、不需要专业工具或外部承诺。
+        若用户主题不是“随机生成”，必须围绕该主题生成，不能改成无关任务。
+        若用户主题是“随机生成”，任务范围限于生活整理、个人照料、轻量规划、轻社交、恢复行动或微型探索。
         输出格式: {"title":"","description":"","reward":""}
     """.trimIndent()
 

@@ -44,6 +44,11 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.refreshDailyState()
+    }
 }
 
 private val NightBlue = androidx.compose.ui.graphics.Color(0xFF10203A)

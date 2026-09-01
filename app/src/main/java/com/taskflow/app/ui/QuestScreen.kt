@@ -1,5 +1,10 @@
 package com.taskflow.app.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
@@ -30,38 +35,72 @@ import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.MilitaryTech
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.ContextCompat
 import com.taskflow.app.data.Quest
+import com.taskflow.app.timer.QuestTimerState
+import kotlinx.coroutines.delay
 
 @Composable
 fun QuestScreen(viewModel: QuestViewModel) {
     val quests by viewModel.quests.collectAsStateWithLifecycle()
     val headline by viewModel.headline.collectAsStateWithLifecycle()
-    val localModelStatus by viewModel.localModelStatus.collectAsStateWithLifecycle()
+    val isAiGenerating by viewModel.isAiGenerating.collectAsStateWithLifecycle()
+    val aiLoadingMessage by viewModel.aiLoadingMessage.collectAsStateWithLifecycle()
     val summary by viewModel.summary.collectAsStateWithLifecycle()
+    val timerState by viewModel.timerState.collectAsStateWithLifecycle()
     val activeQuests = quests.filter { it.status == "active" }
     val completedQuests = quests.filter { it.status == "completed" }
+    val context = LocalContext.current
+    var showAiThemeDialog by rememberSaveable { mutableStateOf(false) }
+    var aiTheme by rememberSaveable { mutableStateOf("") }
+    var completionQuestId by rememberSaveable { mutableStateOf<String?>(null) }
+    var completionReaction by rememberSaveable { mutableStateOf("") }
+    var pendingTimerQuestId by rememberSaveable { mutableStateOf<String?>(null) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            pendingTimerQuestId?.let { questId ->
+                activeQuests.firstOrNull { it.id == questId }?.let(viewModel::startQuestTimer)
+            }
+        } else {
+            viewModel.showNotificationPermissionNeeded()
+        }
+        pendingTimerQuestId = null
+    }
 
     Box(
         modifier = Modifier
@@ -87,13 +126,13 @@ fun QuestScreen(viewModel: QuestViewModel) {
             item {
                 HeroPanel(
                     headline = headline,
-                    localModelStatus = localModelStatus,
+                    hasActiveQuest = activeQuests.isNotEmpty(),
+                    isAiGenerating = isAiGenerating,
+                    aiLoadingMessage = aiLoadingMessage,
                     onRollChill = { viewModel.rollQuest(vibe = "chill", intensity = "chill") },
                     onRollChaos = { viewModel.rollQuest(vibe = "chaos", intensity = "chaotic", theme = "adventure") },
-                    onRollLocalModel = { viewModel.rollQuestWithLocalModel(vibe = "chaos", intensity = "chaotic", theme = "story") },
-                    onRollApi = { viewModel.rollQuestWithApi(vibe = "chaos", intensity = "chaotic", theme = "story") },
+                    onRollApi = { showAiThemeDialog = true },
                     onSummonBoss = viewModel::summonBossQuest,
-                    onRefreshLocalModelStatus = viewModel::refreshLocalModelStatus,
                 )
             }
 
@@ -118,9 +157,26 @@ fun QuestScreen(viewModel: QuestViewModel) {
                 items(activeQuests, key = { it.id }) { quest ->
                     QuestCard(
                         quest = quest,
-                        onComplete = { viewModel.completeQuest(quest.id) },
-                        onReroll = { viewModel.rerollQuest(quest.id) },
+                        onComplete = {
+                            completionQuestId = quest.id
+                            completionReaction = ""
+                        },
+                        onReroll = { viewModel.rerollQuest(quest) },
                         onArchive = { viewModel.archiveQuest(quest.id) },
+                        timerState = timerState?.takeIf { it.questId == quest.id },
+                        onStart = {
+                            val notificationsAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                                ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.POST_NOTIFICATIONS,
+                                ) == PackageManager.PERMISSION_GRANTED
+                            if (notificationsAllowed) {
+                                viewModel.startQuestTimer(quest)
+                            } else {
+                                pendingTimerQuestId = quest.id
+                                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        },
                     )
                 }
             }
@@ -134,20 +190,55 @@ fun QuestScreen(viewModel: QuestViewModel) {
                 }
             }
         }
+
+        if (showAiThemeDialog) {
+            AiThemeDialog(
+                theme = aiTheme,
+                onThemeChange = { aiTheme = it },
+                onDismiss = { showAiThemeDialog = false },
+                onRandom = {
+                    showAiThemeDialog = false
+                    aiTheme = ""
+                    viewModel.rollQuestWithApi()
+                },
+                onGenerate = {
+                    showAiThemeDialog = false
+                    viewModel.rollQuestWithApi(aiTheme)
+                    aiTheme = ""
+                },
+            )
+        }
+
+        completionQuestId?.let { questId ->
+            CompletionReactionDialog(
+                reaction = completionReaction,
+                onReactionChange = { completionReaction = it },
+                onDismiss = { completionQuestId = null },
+                onSkip = {
+                    viewModel.completeQuest(questId)
+                    completionQuestId = null
+                },
+                onComplete = {
+                    viewModel.completeQuest(questId, completionReaction)
+                    completionQuestId = null
+                },
+            )
+        }
     }
 }
 
 @Composable
 private fun HeroPanel(
     headline: String,
-    localModelStatus: String,
+    hasActiveQuest: Boolean,
+    isAiGenerating: Boolean,
+    aiLoadingMessage: String,
     onRollChill: () -> Unit,
     onRollChaos: () -> Unit,
-    onRollLocalModel: () -> Unit,
     onRollApi: () -> Unit,
     onSummonBoss: () -> Unit,
-    onRefreshLocalModelStatus: () -> Unit,
 ) {
+    val canGenerate = !hasActiveQuest && !isAiGenerating
     ElevatedCard(
         shape = RoundedCornerShape(28.dp),
         colors = CardDefaults.elevatedCardColors(
@@ -189,17 +280,24 @@ private fun HeroPanel(
                     fontSize = 14.sp,
                 )
             }
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = Color(0xFF08162D).copy(alpha = 0.35f),
-                onClick = onRefreshLocalModelStatus,
-            ) {
-                Text(
-                    text = localModelStatus,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    color = Color(0xFFBDF9EA),
-                    fontSize = 13.sp,
-                )
+            if (isAiGenerating) {
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color(0xFF08162D).copy(alpha = 0.36f),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = Color(0xFFBDF9EA),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.size(10.dp))
+                        Text(aiLoadingMessage, color = Color(0xFFBDF9EA), fontSize = 13.sp)
+                    }
+                }
             }
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
@@ -210,11 +308,13 @@ private fun HeroPanel(
                         text = "抽轻支线",
                         icon = { Icon(Icons.Filled.AutoAwesome, contentDescription = null) },
                         onClick = onRollChill,
+                        enabled = canGenerate,
                     )
                     ActionButton(
                         text = "抽混沌支线",
                         icon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
                         onClick = onRollChaos,
+                        enabled = canGenerate,
                     )
                 }
                 Row(
@@ -222,18 +322,15 @@ private fun HeroPanel(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     ActionButton(
-                        text = "API 生成",
+                        text = if (isAiGenerating) "AI 生成中" else "AI生成",
                         icon = { Icon(Icons.Filled.AutoAwesome, contentDescription = null) },
                         onClick = onRollApi,
-                    )
-                    ActionButton(
-                        text = "本地生成",
-                        icon = { Icon(Icons.Filled.AutoAwesome, contentDescription = null) },
-                        onClick = onRollLocalModel,
+                        enabled = canGenerate,
                     )
                 }
                 Button(
                     onClick = onSummonBoss,
+                    enabled = canGenerate,
                     modifier = Modifier
                         .fillMaxWidth()
                         .defaultMinSize(minHeight = 56.dp),
@@ -252,9 +349,11 @@ private fun RowScope.ActionButton(
     text: String,
     icon: @Composable () -> Unit,
     onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         modifier = Modifier
             .weight(1f)
             .defaultMinSize(minHeight = 76.dp),
@@ -295,6 +394,80 @@ private fun RowScope.ActionButton(
             }
         }
     }
+}
+
+@Composable
+private fun AiThemeDialog(
+    theme: String,
+    onThemeChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onRandom: () -> Unit,
+    onGenerate: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("AI 生成支线") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("想围绕什么做点事？留空也可以。")
+                OutlinedTextField(
+                    value = theme,
+                    onValueChange = onThemeChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("任务主题（可选）") },
+                    placeholder = { Text("例如：收拾衣柜、让我缓一缓") },
+                    singleLine = true,
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onGenerate) {
+                Text("生成任务")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onRandom) {
+                Text("随机来一个")
+            }
+        },
+    )
+}
+
+@Composable
+private fun CompletionReactionDialog(
+    reaction: String,
+    onReactionChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onSkip: () -> Unit,
+    onComplete: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("通关感言") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("这件事做完后，感觉怎么样？")
+                OutlinedTextField(
+                    value = reaction,
+                    onValueChange = onReactionChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("写一句也行，留空也没关系") },
+                    minLines = 3,
+                    maxLines = 4,
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onComplete) {
+                Text("通关 + XP")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onSkip) {
+                Text("跳过感言")
+            }
+        },
+    )
 }
 
 @Composable
@@ -344,6 +517,8 @@ private fun QuestCard(
     onComplete: () -> Unit,
     onReroll: () -> Unit,
     onArchive: () -> Unit,
+    timerState: QuestTimerState?,
+    onStart: () -> Unit,
 ) {
     Card(
         shape = RoundedCornerShape(24.dp),
@@ -402,6 +577,19 @@ private fun QuestCard(
                 )
             }
 
+            when {
+                timerState?.isFinished == true -> TimerStatus("时间到，回来通关吧。", Color(0xFFFFC857))
+                timerState != null -> TimerCountdown(timerState.endAt)
+                else -> Button(
+                    onClick = onStart,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.Bolt, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text("开始执行 ${quest.durationMinutes} 分钟")
+                }
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -413,13 +601,44 @@ private fun QuestCard(
                     Text("通关")
                 }
                 IconButton(onClick = onReroll) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "重掷", tint = Color.White)
+                    Icon(Icons.Filled.Refresh, contentDescription = "再来一个", tint = Color.White)
                 }
                 IconButton(onClick = onArchive) {
                     Icon(Icons.Outlined.Archive, contentDescription = "归档", tint = Color(0xFFB7C3E0))
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TimerCountdown(endAt: Long) {
+    var now by remember(endAt) { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(endAt) {
+        while (now < endAt) {
+            delay(1_000)
+            now = System.currentTimeMillis()
+        }
+    }
+    val remainingSeconds = ((endAt - now).coerceAtLeast(0L) + 999) / 1_000
+    val minutes = remainingSeconds / 60
+    val seconds = remainingSeconds % 60
+    TimerStatus("执行中 · 剩余 %02d:%02d".format(minutes, seconds), Color(0xFF5FF2C6))
+}
+
+@Composable
+private fun TimerStatus(text: String, color: Color) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = color.copy(alpha = 0.14f),
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            color = color,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 

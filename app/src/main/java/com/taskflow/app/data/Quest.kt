@@ -26,6 +26,8 @@ data class Quest(
     val mode: String,
     /** 经验值奖励。 */
     val xp: Int,
+    /** 任务生成来源。 */
+    val source: String,
     /** 创建时间戳。 */
     val createdAt: Long,
     /** 完成时间戳。 */
