@@ -24,6 +24,7 @@ fun String.asBuildConfigString(): String =
 val taskApiKey = localConfigValue("taskflowApiKey")
 val taskApiBaseUrl = localConfigValue("taskflowApiBaseUrl", "https://token-plan-cn.xiaomimimo.com/v1")
 val taskApiModel = localConfigValue("taskflowApiModel", "mimo-v2-flash")
+val appVersionName = "1.0"
 val releaseStoreFilePath = localConfigValue("releaseStoreFile")
 val releaseStorePassword = localConfigValue("releaseStorePassword")
 val releaseKeyAlias = localConfigValue("releaseKeyAlias")
@@ -48,7 +49,7 @@ android {
         minSdk = 26
         targetSdk = 37
         versionCode = 1
-        versionName = "1.0"
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TASK_API_KEY", "\"${taskApiKey.asBuildConfigString()}\"")
@@ -68,6 +69,14 @@ android {
     }
 
     buildTypes {
+
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            isDebuggable = true
+            isMinifyEnabled = false
+        }
+
         release {
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
@@ -96,6 +105,35 @@ android {
     }
 }
 
+val copyDebugApk = tasks.register("copyDebugApk") {
+    dependsOn("packageDebug")
+    doLast {
+        copy {
+            from(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk"))
+            into(layout.buildDirectory.dir("outputs/apk/debug"))
+            rename { "ChaosQuest-$appVersionName-debug.apk" }
+        }
+    }
+}
+
+val copyReleaseApk = tasks.register("copyReleaseApk") {
+    dependsOn("packageRelease")
+    doLast {
+        copy {
+            from(layout.buildDirectory.file("outputs/apk/release/app-release.apk"))
+            into(layout.buildDirectory.dir("outputs/apk/release"))
+            rename { "ChaosQuest-$appVersionName-release.apk" }
+        }
+    }
+}
+
+tasks.configureEach {
+    when (name) {
+        "assembleDebug" -> finalizedBy(copyDebugApk)
+        "assembleRelease" -> finalizedBy(copyReleaseApk)
+    }
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
@@ -115,7 +153,6 @@ dependencies {
     implementation("androidx.appfunctions:appfunctions:1.0.0-alpha09")
     implementation("androidx.appfunctions:appfunctions-service:1.0.0-alpha09")
     ksp("androidx.appfunctions:appfunctions-compiler:1.0.0-alpha09")
-    implementation("com.google.mediapipe:tasks-genai:0.10.27")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 
     testImplementation("junit:junit:4.13.2")

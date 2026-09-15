@@ -74,7 +74,7 @@ class QuestTimerService : Service() {
     private fun createChannels() {
         val manager = notificationManager()
         manager.createNotificationChannel(
-            NotificationChannel(RUNNING_CHANNEL_ID, "任务计时", NotificationManager.IMPORTANCE_LOW).apply {
+            NotificationChannel(RUNNING_CHANNEL_ID, "任务计时", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "进行中任务的倒计时"
                 setSound(null, null)
             },
