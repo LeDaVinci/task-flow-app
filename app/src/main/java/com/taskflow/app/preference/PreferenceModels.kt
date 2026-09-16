@@ -73,10 +73,9 @@ data class RecommendationRequest(
     val userTheme: String?,
     val intensity: String?,
     val durationMinutes: Int?,
-    val fallbackDuration: Int,
 )
 
-data class QuestRecommendation(val topic: PreferenceTopic?, val durationMinutes: Int, val intensity: String?, val hint: String?)
+data class QuestRecommendation(val topic: PreferenceTopic?, val durationMinutes: Int?, val intensity: String?, val hint: String?)
 
 interface PreferenceStore {
     fun load(): PreferenceState

@@ -1,5 +1,6 @@
 package com.taskflow.app.preference
 
+import com.taskflow.app.data.QuestDuration
 import kotlin.random.Random
 
 class LocalQuestRecommendationPolicy(
@@ -10,7 +11,7 @@ class LocalQuestRecommendationPolicy(
 ) : QuestRecommendationPolicy {
     override suspend fun recommend(request: RecommendationRequest): QuestRecommendation {
         val state = repository.snapshot()
-        val fallback = QuestRecommendation(null, request.durationMinutes ?: request.fallbackDuration, request.intensity, null)
+        val fallback = QuestRecommendation(null, request.durationMinutes?.let(QuestDuration::normalize), request.intensity, null)
         if (!state.enabled) return fallback
         val weights = rules.calculate(state.events, now())
         val accepted = state.accepted?.takeIf { it.expiresAt > now() }
@@ -32,17 +33,18 @@ class LocalQuestRecommendationPolicy(
                 ?: (1.0 + (weights.topics[topic] ?: 0.0) + (accepted?.topics?.get(topic) ?: 0) * 0.4).coerceIn(0.15, 4.0)
         }
         val topic = if (explicit) null else if (random.nextDouble() < 0.3) eligible.random(random) else choose(scores)
-        val duration = request.durationMinutes ?: listOf(15, 30).maxBy { minutes ->
-            (weights.durations[minutes] ?: 0.0) + (if (accepted?.durationMinutes == minutes) 0.4 else 0.0) +
-                (if (request.fallbackDuration == minutes) 0.05 else 0.0)
+        val durationScores = QuestDuration.supported.associateWith { minutes ->
+            (weights.durations[minutes] ?: 0.0) + if (accepted?.durationMinutes == minutes) 0.4 else 0.0
         }
+        val duration = fallback.durationMinutes ?: durationScores.maxBy { it.value }.takeIf { it.value > 0.0 }?.key
         // Boss/chaotic are selected by the user, never promoted by ordinary completion.
         val intensity = request.intensity ?: listOf("chill", "spicy").maxBy {
             (weights.intensities[it] ?: 0.0) + (if (accepted?.intensity == it) 0.4 else 0.0) + if (it == "spicy") 0.01 else 0.0
         }
         val hint = buildList {
             if (topic != null) add("本次选择方向：${topic.label}")
-            add("建议任务时长：$duration 分钟；强度：$intensity")
+            if (duration != null) add("偏好时长约 $duration 分钟，仅供选任务参考，不要拉长简单任务")
+            add("建议强度：$intensity")
             if (accepted?.hintExpiresAt?.let { it > now() } == true && accepted.recentHint != null) add("近期任务线索：${accepted.recentHint}")
         }.joinToString("；")
         return QuestRecommendation(topic, duration, intensity, hint)

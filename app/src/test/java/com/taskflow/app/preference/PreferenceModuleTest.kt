@@ -94,7 +94,7 @@ class PreferenceModuleTest {
         repo.setEnabled(true)
         repeat(8) { repo.record(event("$it", InteractionKind.COMPLETED).copy(intensity = "boss")) }
         val policy = LocalQuestRecommendationPolicy(repo, random = Random(1), now = { now })
-        val result = policy.recommend(RecommendationRequest("AI", "收拾衣柜", null, 30, 15))
+        val result = policy.recommend(RecommendationRequest("AI", "收拾衣柜", null, 30))
         assertNull(result.topic)
         assertEquals(30, result.durationMinutes)
         assertTrue(result.intensity in listOf("chill", "spicy"))
@@ -107,7 +107,7 @@ class PreferenceModuleTest {
         repo.adjust(PreferenceTopic.TIDY, 1)
         val policy = LocalQuestRecommendationPolicy(repo, random = Random(0), now = { now })
         repeat(50) {
-            assertNotEquals(PreferenceTopic.TIDY, policy.recommend(RecommendationRequest("AI", null, null, null, 15)).topic)
+            assertNotEquals(PreferenceTopic.TIDY, policy.recommend(RecommendationRequest("AI", null, null, null)).topic)
         }
     }
 
@@ -117,9 +117,9 @@ class PreferenceModuleTest {
         assertTrue(repo.snapshot().events.isEmpty())
         repo.adjust(PreferenceTopic.TIDY, 1)
         repo.setEnabled(false)
-        val result = LocalQuestRecommendationPolicy(repo).recommend(RecommendationRequest("CHAOS", null, "chaotic", null, 30))
+        val result = LocalQuestRecommendationPolicy(repo).recommend(RecommendationRequest("CHAOS", null, "chaotic", null))
         assertNull(result.topic)
-        assertEquals(30, result.durationMinutes)
+        assertNull(result.durationMinutes)
         assertEquals("chaotic", result.intensity)
     }
 
@@ -138,6 +138,27 @@ class PreferenceModuleTest {
         assertNull(receivedReaction)
         repo.generateSuggestion(true)
         assertEquals("今天很累", receivedReaction)
+    }
+
+    @Test fun coldStartDoesNotInventDurationAndShortDurationsCanBeLearned() = runBlocking {
+        val repo = repository()
+        repo.setEnabled(true)
+        val policy = LocalQuestRecommendationPolicy(repo, now = { now })
+        val request = RecommendationRequest("AI", null, null, null)
+        assertNull(policy.recommend(request).durationMinutes)
+        repo.record(event("short", InteractionKind.COMPLETED).copy(durationMinutes = 10))
+        repo.record(event("long", InteractionKind.ARCHIVED).copy(durationMinutes = 30))
+        assertEquals(10, policy.recommend(request).durationMinutes)
+        assertEquals(7, policy.recommend(request.copy(durationMinutes = 7)).durationMinutes)
+        assertEquals(10, repository(MemoryStore(repo.state.value)).snapshot().events.first().durationMinutes)
+    }
+
+    @Test fun adoptedShortDurationIsRespectedAndOldThirtyMinutePreferenceStillWorks() = runBlocking {
+        val request = RecommendationRequest("AI", null, null, null)
+        for (minutes in listOf(10, 30)) {
+            val repo = repository(MemoryStore(PreferenceState(enabled = true, accepted = suggestion().copy(durationMinutes = minutes))))
+            assertEquals(minutes, LocalQuestRecommendationPolicy(repo, now = { now }).recommend(request).durationMinutes)
+        }
     }
 
     @Test fun preferencesRestoreAndHistoryStaysBoundedWithoutSuppressingFutureInvitations() = runBlocking {

@@ -1,5 +1,7 @@
 package com.taskflow.app.preference
 
+import com.taskflow.app.data.QuestDuration
+
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -49,7 +51,7 @@ class LocalPreferenceStore(context: Context) : PreferenceStore {
 
     private fun JSONObject.suggestion(): PreferenceSuggestion? = runCatching {
         PreferenceSuggestion(getString("id"), getString("summary"), optJSONObject("topics").topicScores(),
-            optInt("duration").takeIf { it == 15 || it == 30 }, nullableString("intensity"),
+            QuestDuration.parse(opt("duration")), nullableString("intensity"),
             optJSONArray("evidence").let { array -> (0 until (array?.length() ?: 0)).map { array!!.getString(it) } },
             getLong("created"), getLong("expires"), nullableString("hint"), optLong("hintExpires").takeIf { it > 0 })
     }.getOrNull()

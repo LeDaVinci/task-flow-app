@@ -1,6 +1,7 @@
 package com.taskflow.app.preference
 
 import com.taskflow.app.ai.TaskAiClient
+import com.taskflow.app.data.QuestDuration
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -21,7 +22,7 @@ class AiPreferenceInferenceEngine(private val client: TaskAiClient) : Preference
             """
                 根据任务选择给出温和的偏好建议，并提供支持建议的任务 ID。
                 主题仅限 TIDY, CARE, PLANNING, SOCIAL, RECOVERY, EXPLORE，倾向值为 -1、0、1。
-                summary 不超过 160 字，durationMinutes 为 15、30 或 null，intensity 为 chill、spicy 或 null。
+                summary 不超过 160 字，durationMinutes 为 5 到 30 之间的整数或 null；按实际记录归纳，不限于 15 或 30，证据不足时为 null。intensity 为 chill、spicy 或 null。
                 recentHint 仅在感言明确表达当下需求时填写，否则 null。${if (!includeReactions) "本次禁止分析感言或生成 recentHint。" else ""}
                 格式：{"summary":"","topics":{"TIDY":1},"durationMinutes":15,"intensity":"chill","evidenceQuestIds":["id"],"recentHint":null}
                 任务记录：$records
@@ -40,7 +41,7 @@ class AiPreferenceInferenceEngine(private val client: TaskAiClient) : Preference
             require(value in -1..1)
             PreferenceTopic.parse(key) to value
         }
-        val duration = if (json.isNull("durationMinutes")) null else json.getInt("durationMinutes").also { require(it == 15 || it == 30) }
+        val duration = if (json.isNull("durationMinutes")) null else requireNotNull(QuestDuration.parse(json.get("durationMinutes")))
         val intensity = if (json.isNull("intensity")) null else json.getString("intensity").also { require(it in listOf("chill", "spicy")) }
         val hint = if (includeReactions && !json.isNull("recentHint")) json.getString("recentHint").take(100).takeIf { it.isNotBlank() } else null
         val now = System.currentTimeMillis()

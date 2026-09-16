@@ -141,18 +141,18 @@ class QuestRepository(
 
     private data class GenerationPlan(
         val blueprint: QuestBlueprint, val input: String?, val entry: String, val hint: String?,
+        val requestedDuration: Int?,
     )
 
     private suspend fun templatePlan(
         vibe: String, intensity: String, duration: Int?, boss: Boolean, theme: String?, entry: String,
     ): GenerationPlan {
         val input = theme?.trim()?.takeIf { it.isNotBlank() }
-        val fallback = if (boss || intensity == "chaotic") 30 else 15
         val request = RecommendationRequest(entry, input, if (entry == "AI" && intensity == "spicy") null else intensity,
-            duration?.let { if (it <= 15) 15 else 30 }, fallback)
+            duration?.let(QuestDuration::normalize))
         val recommendation = try { recommendations.recommend(request) }
         catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { QuestRecommendation(null, request.durationMinutes ?: fallback, intensity, null) }
+        catch (_: Exception) { QuestRecommendation(null, request.durationMinutes, intensity, null) }
         val mappedTheme = when (recommendation.topic) {
             PreferenceTopic.TIDY -> "tidy"
             PreferenceTopic.CARE -> "care"
@@ -162,16 +162,16 @@ class QuestRepository(
             PreferenceTopic.EXPLORE -> "adventure"
             else -> null
         }
-        val blueprint = planner.plan(vibe, recommendation.intensity ?: intensity, recommendation.durationMinutes, boss,
-            input ?: mappedTheme, recentTitles())
-        return GenerationPlan(blueprint, input, entry, recommendation.hint)
+        val blueprint = planner.plan(vibe, recommendation.intensity ?: intensity, request.durationMinutes, boss,
+            input ?: mappedTheme, recentTitles(), recommendation.durationMinutes)
+        return GenerationPlan(blueprint, input, entry, recommendation.hint, request.durationMinutes)
     }
 
     private suspend fun generateApi(plan: GenerationPlan, replacing: Quest? = null): QuestCreationResult {
-        return when (val result = apiTaskGenerator.polishBlueprint(plan.blueprint, recentTitles(), plan.input, plan.hint)) {
+        return when (val result = apiTaskGenerator.polishBlueprint(plan.blueprint, recentTitles(), plan.input, plan.hint, plan.requestedDuration)) {
             is ApiGenerationResult.Success -> QuestCreationResult(
                 create(plan, QuestSource.API, result.draft.title, result.draft.description, result.draft.reward,
-                    result.draft.topic, replacing), QuestSource.API,
+                    result.draft.topic, replacing, result.draft.durationMinutes), QuestSource.API,
             )
             is ApiGenerationResult.Fallback -> QuestCreationResult(create(plan, QuestSource.TEMPLATE, replacing = replacing),
                 QuestSource.TEMPLATE, result.message)
@@ -182,12 +182,13 @@ class QuestRepository(
         plan: GenerationPlan, source: QuestSource, title: String = plan.blueprint.title,
         description: String = plan.blueprint.description, reward: String = plan.blueprint.reward,
         topic: PreferenceTopic = plan.blueprint.theme.preferenceTopic(), replacing: Quest? = null,
+        durationMinutes: Int = plan.blueprint.durationMinutes,
     ): Quest {
         val b = plan.blueprint
         val quest = Quest(id = UUID.randomUUID().toString(), title = title, description = description, difficulty = b.difficulty,
-            reward = reward, status = "active", durationMinutes = b.durationMinutes, vibe = b.vibe,
+            reward = QuestDuration.rewardText(reward, durationMinutes), status = "active", durationMinutes = durationMinutes, vibe = b.vibe,
             theme = if (source == QuestSource.API && topic != PreferenceTopic.UNKNOWN) topic.label else b.theme.label,
-            mode = b.mode.label, xp = b.durationMinutes, source = source.name, requestedTheme = plan.input,
+            mode = b.mode.label, xp = durationMinutes, source = source.name, requestedTheme = plan.input,
             generationEntry = plan.entry, preferenceTopic = topic.name, createdAt = System.currentTimeMillis())
         stateStore.saveActiveQuest(quest)
         _quests.value = listOf(quest) + _quests.value.filterNot { it.status == "active" }
@@ -196,7 +197,7 @@ class QuestRepository(
             preferences.recordSafely(replacing.interaction(InteractionKind.REROLLED))
         }
         preferences.recordSafely(quest.interaction(InteractionKind.GENERATED))
-        AppLog.i("QuestRepository", "created: id=${quest.id}, source=$source, replacing=${replacing != null}")
+        AppLog.i("QuestRepository", "created: id=${quest.id}, source=$source, duration=$durationMinutes, replacing=${replacing != null}")
         return quest
     }
 

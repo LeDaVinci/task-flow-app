@@ -67,7 +67,6 @@ class QuestViewModel : ViewModel() {
         val quest = repository.rollQuest(
             vibe = "resolve",
             intensity = "boss",
-            durationMinutes = 30,
             forceBoss = true,
         )
         _headline.value = "Boss 降临: ${quest.title}"
