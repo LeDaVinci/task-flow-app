@@ -5,10 +5,12 @@ import android.content.Intent
 import androidx.core.content.ContextCompat
 import com.taskflow.app.data.Quest
 import com.taskflow.app.logging.AppLog
+import com.taskflow.app.preference.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
+import java.util.Calendar
 
 data class QuestTimerState(
     val questId: String,
@@ -17,13 +19,13 @@ data class QuestTimerState(
     val isFinished: Boolean,
 )
 
-class QuestTimerController(private val context: Context) {
+class QuestTimerController(private val context: Context, private val preferences: PreferenceRepository) {
 
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val _timerState = MutableStateFlow(loadState())
     val timerState: StateFlow<QuestTimerState?> = _timerState.asStateFlow()
 
-    fun start(quest: Quest): Boolean {
+    suspend fun start(quest: Quest): Boolean {
         val current = _timerState.value
         if (current?.questId == quest.id && !current.isFinished) return false
 
@@ -39,15 +41,21 @@ class QuestTimerController(private val context: Context) {
             context,
             Intent(context, QuestTimerService::class.java).setAction(QuestTimerService.ACTION_START),
         )
+        preferences.recordSafely(quest.interaction(InteractionKind.STARTED))
         AppLog.i("QuestTimer", "started: questId=${quest.id}, endAt=${state.endAt}")
         return true
     }
 
-    fun markFinished(questId: String) {
+    suspend fun markFinished(questId: String) {
         val state = _timerState.value?.takeIf { it.questId == questId } ?: return
         val finished = state.copy(isFinished = true)
         persist(finished)
         _timerState.value = finished
+        preferences.state.value.events.firstOrNull { it.questId == questId }?.let { event ->
+            preferences.recordSafely(event.copy(id = "$questId:TIMER_FINISHED", kind = InteractionKind.TIMER_FINISHED,
+                occurredAt = state.endAt, reaction = null,
+                localHour = Calendar.getInstance().apply { timeInMillis = state.endAt }.get(Calendar.HOUR_OF_DAY)))
+        }
         AppLog.i("QuestTimer", "finished: questId=$questId")
     }
 

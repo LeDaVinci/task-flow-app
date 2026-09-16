@@ -52,18 +52,18 @@ class QuestViewModel : ViewModel() {
         refreshDailyState()
     }
 
-    fun refreshDailyState() {
+    fun refreshDailyState() = viewModelScope.launch {
         if (repository.expireActiveQuestIfNeeded()) {
             _headline.value = "昨晚的支线已自动注销，今晚重新开始。"
         }
     }
 
-    fun rollQuest(vibe: String = "random", intensity: String = "spicy", theme: String? = null) {
+    fun rollQuest(vibe: String = "random", intensity: String = "spicy", theme: String? = null) = viewModelScope.launch {
         val quest = repository.rollQuest(vibe = vibe, intensity = intensity, theme = theme)
         _headline.value = "新支线已刷新: ${quest.title}"
     }
 
-    fun summonBossQuest() {
+    fun summonBossQuest() = viewModelScope.launch {
         val quest = repository.rollQuest(
             vibe = "resolve",
             intensity = "boss",
@@ -109,15 +109,13 @@ class QuestViewModel : ViewModel() {
         }
     }
 
-    fun completeQuest(questId: String, reaction: String? = null) {
-        val quest = repository.completeQuest(questId, reaction) ?: return
-        timerController.clear(questId)
+    fun completeQuest(questId: String, reaction: String? = null) = viewModelScope.launch {
+        val quest = repository.completeQuest(questId, reaction) ?: return@launch
         _headline.value = "通关成功 +${quest.xp} XP"
     }
 
     fun rerollQuest(quest: Quest) {
-        timerController.clear(quest.id)
-        if (quest.source == QuestSource.API.name) {
+        if (quest.source == QuestSource.API.name || quest.generationEntry == "AI") {
             if (_isAiGenerating.value) return
             _isAiGenerating.value = true
             _aiLoadingMessage.value = AI_LOADING_MESSAGES.first()
@@ -139,14 +137,14 @@ class QuestViewModel : ViewModel() {
         }
     }
 
-    fun archiveQuest(questId: String) {
-        val quest = repository.archiveQuest(questId) ?: return
-        timerController.clear(questId)
+    fun archiveQuest(questId: String) = viewModelScope.launch {
+        val quest = repository.archiveQuest(questId) ?: return@launch
         _headline.value = "已放下 ${quest.title}。"
     }
 
-    fun startQuestTimer(quest: Quest) {
-        if (timerController.start(quest)) {
+    fun startQuestTimer(quest: Quest) = viewModelScope.launch {
+        if (_isAiGenerating.value) return@launch
+        if (repository.startQuest(quest.id) != null) {
             _headline.value = "开始执行：${quest.title}"
         }
     }

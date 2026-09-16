@@ -72,9 +72,12 @@ import androidx.core.content.ContextCompat
 import com.taskflow.app.data.Quest
 import com.taskflow.app.timer.QuestTimerState
 import kotlinx.coroutines.delay
+import com.taskflow.app.preference.PreferenceEntry
+import com.taskflow.app.preference.PreferenceViewModel
 
 @Composable
 fun QuestScreen(viewModel: QuestViewModel) {
+    val preferenceViewModel: PreferenceViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val quests by viewModel.quests.collectAsStateWithLifecycle()
     val headline by viewModel.headline.collectAsStateWithLifecycle()
     val isAiGenerating by viewModel.isAiGenerating.collectAsStateWithLifecycle()
@@ -130,9 +133,9 @@ fun QuestScreen(viewModel: QuestViewModel) {
                     isAiGenerating = isAiGenerating,
                     aiLoadingMessage = aiLoadingMessage,
                     onRollChill = { viewModel.rollQuest(vibe = "chill", intensity = "chill") },
-                    onRollChaos = { viewModel.rollQuest(vibe = "chaos", intensity = "chaotic", theme = "adventure") },
+                    onRollChaos = { viewModel.rollQuest(vibe = "chaos", intensity = "chaotic") },
                     onRollApi = { showAiThemeDialog = true },
-                    onSummonBoss = viewModel::summonBossQuest,
+                    onSummonBoss = { viewModel.summonBossQuest() },
                 )
             }
 
@@ -145,9 +148,9 @@ fun QuestScreen(viewModel: QuestViewModel) {
                 )
             }
 
-            item {
-                SectionTitle("进行中的支线", "${activeQuests.size} 个活跃任务")
-            }
+            item { PreferenceEntry(preferenceViewModel) }
+
+            item { SectionTitle("进行中的支线", "${activeQuests.size} 个活跃任务") }
 
             if (activeQuests.isEmpty()) {
                 item {
@@ -157,6 +160,7 @@ fun QuestScreen(viewModel: QuestViewModel) {
                 items(activeQuests, key = { it.id }) { quest ->
                     QuestCard(
                         quest = quest,
+                        actionsEnabled = !isAiGenerating,
                         onComplete = {
                             completionQuestId = quest.id
                             completionReaction = ""
@@ -514,6 +518,7 @@ private fun SectionTitle(title: String, subtitle: String) {
 @Composable
 private fun QuestCard(
     quest: Quest,
+    actionsEnabled: Boolean,
     onComplete: () -> Unit,
     onReroll: () -> Unit,
     onArchive: () -> Unit,
@@ -582,6 +587,7 @@ private fun QuestCard(
                 timerState != null -> TimerCountdown(timerState.endAt)
                 else -> Button(
                     onClick = onStart,
+                    enabled = actionsEnabled,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Icon(Icons.Filled.Bolt, contentDescription = null)
@@ -595,15 +601,15 @@ private fun QuestCard(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Button(onClick = onComplete, modifier = Modifier.weight(1f)) {
+                Button(onClick = onComplete, enabled = actionsEnabled, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Filled.Check, contentDescription = null)
                     Spacer(Modifier.size(8.dp))
                     Text("通关")
                 }
-                IconButton(onClick = onReroll) {
+                IconButton(onClick = onReroll, enabled = actionsEnabled) {
                     Icon(Icons.Filled.Refresh, contentDescription = "再来一个", tint = Color.White)
                 }
-                IconButton(onClick = onArchive) {
+                IconButton(onClick = onArchive, enabled = actionsEnabled) {
                     Icon(Icons.Outlined.Archive, contentDescription = "归档", tint = Color(0xFFB7C3E0))
                 }
             }

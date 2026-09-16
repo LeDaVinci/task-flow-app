@@ -25,6 +25,9 @@ class QuestStateStore(context: Context) {
                 mode = json.getString("mode"),
                 xp = json.getInt("xp"),
                 source = json.optString("source", QuestSource.TEMPLATE.name),
+                requestedTheme = json.optString("requestedTheme").takeIf { it.isNotBlank() },
+                generationEntry = json.optString("generationEntry").takeIf { it.isNotBlank() },
+                preferenceTopic = json.optString("preferenceTopic").takeIf { it.isNotBlank() },
                 createdAt = json.getLong("createdAt"),
             )
         }.getOrNull()
@@ -43,6 +46,9 @@ class QuestStateStore(context: Context) {
             .put("mode", quest.mode)
             .put("xp", quest.xp)
             .put("source", quest.source)
+            .put("requestedTheme", quest.requestedTheme)
+            .put("generationEntry", quest.generationEntry)
+            .put("preferenceTopic", quest.preferenceTopic)
             .put("createdAt", quest.createdAt)
         prefs.edit { putString(KEY_ACTIVE_QUEST, json.toString()) }
     }

@@ -28,6 +28,12 @@ data class Quest(
     val xp: Int,
     /** 任务生成来源。 */
     val source: String,
+    /** 用户原始主题；空表示随机。 */
+    val requestedTheme: String? = null,
+    /** 创建入口：CHILL / CHAOS / BOSS / AI / TEMPLATE。 */
+    val generationEntry: String? = null,
+    /** 实际任务分类。 */
+    val preferenceTopic: String? = null,
     /** 创建时间戳。 */
     val createdAt: Long,
     /** 完成时间戳。 */

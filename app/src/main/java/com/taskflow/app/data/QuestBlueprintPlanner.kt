@@ -15,6 +15,8 @@ enum class QuestTheme(
     SOCIAL("social", "和人交流"),
     NATURE("nature", "感受自然"),
     TIDY("tidy", "整理环境"),
+    CARE("care", "个人照料"),
+    PLANNING("planning", "轻量规划"),
     OBSERVE("observe", "观察记录"),
     ADVENTURE("adventure", "微型冒险"),
     EXPRESSION("expression", "自我表达");
@@ -140,6 +142,8 @@ class QuestBlueprintPlanner(
             QuestTheme.SOCIAL -> listOf(QuestMode.SIGNAL, QuestMode.DIRECTOR, QuestMode.SPRINT)
             QuestTheme.NATURE -> listOf(QuestMode.DETECTIVE, QuestMode.RITUAL, QuestMode.TREASURE)
             QuestTheme.TIDY -> listOf(QuestMode.SPRINT, QuestMode.TREASURE, QuestMode.RITUAL)
+            QuestTheme.CARE -> listOf(QuestMode.RITUAL, QuestMode.SILENT)
+            QuestTheme.PLANNING -> listOf(QuestMode.DIRECTOR, QuestMode.SILENT)
             QuestTheme.OBSERVE -> listOf(QuestMode.DETECTIVE, QuestMode.SILENT, QuestMode.DIRECTOR)
             QuestTheme.ADVENTURE -> listOf(QuestMode.TREASURE, QuestMode.DETECTIVE, QuestMode.SPRINT)
             QuestTheme.EXPRESSION -> listOf(QuestMode.DIRECTOR, QuestMode.SIGNAL, QuestMode.RITUAL)
@@ -215,6 +219,10 @@ class QuestBlueprintPlanner(
     }
 
     private val prototypes = listOf(
+        QuestPrototype(QuestTheme.CARE, "舒适补给", "给自己准备一杯水，洗脸并舒展肩颈，留几分钟安静坐着", "当下感受", "身体感觉更舒适", "舒适值"),
+        QuestPrototype(QuestTheme.CARE, "明早照料", "准备明天要穿的衣服和随身用品，给早晨少留一点忙乱", "门口或床边", "明早用品已备好", "安心值"),
+        QuestPrototype(QuestTheme.PLANNING, "生活减负", "列下最近挂心的生活小事，只选出一件明天可以推进的事", "纸或备忘录", "明确一件下一步行动", "清晰度"),
+        QuestPrototype(QuestTheme.PLANNING, "晚间小安排", "梳理明天的吃饭、出行与休息安排，给自己留一段空闲", "纸或备忘录", "一份简短的生活安排", "从容值"),
         QuestPrototype(QuestTheme.STORY, "给今天起片名", "给今天起一个片名，再写三句预告词", "备忘录", "片名加三句预告词", "创意值"),
         QuestPrototype(QuestTheme.STORY, "倒叙回放", "先写今天最晚发生的一件事，再倒着补两句前情", "备忘录", "三句倒叙文本", "叙事值"),
         QuestPrototype(QuestTheme.STORY, "旁白试音", "录一段 30 秒旁白，把今天讲成一个刚开场的故事", "语音备忘录", "一段 30 秒录音", "存在感"),
