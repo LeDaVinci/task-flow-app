@@ -14,13 +14,15 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -87,6 +89,7 @@ fun QuestScreen(viewModel: QuestViewModel) {
     val activeQuests = quests.filter { it.status == "active" }
     val completedQuests = quests.filter { it.status == "completed" }
     val context = LocalContext.current
+    val navigationBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var showAiThemeDialog by rememberSaveable { mutableStateOf(false) }
     var aiTheme by rememberSaveable { mutableStateOf("") }
     var completionQuestId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -119,78 +122,91 @@ fun QuestScreen(viewModel: QuestViewModel) {
             )
     ) {
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 28.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 28.dp + navigationBottom),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
-                HeroPanel(
-                    headline = headline,
-                    hasActiveQuest = activeQuests.isNotEmpty(),
-                    isAiGenerating = isAiGenerating,
-                    aiLoadingMessage = aiLoadingMessage,
-                    onRollChill = { viewModel.rollQuest(vibe = "chill", intensity = "chill") },
-                    onRollChaos = { viewModel.rollQuest(vibe = "chaos", intensity = "chaotic") },
-                    onRollApi = { showAiThemeDialog = true },
-                    onSummonBoss = { viewModel.summonBossQuest() },
-                )
+                Box(
+                    modifier = Modifier
+                        .fillParentMaxWidth()
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(Color(0xFF294D87), Color(0xFF8F2EFF), Color(0xFFFF5FA2))
+                            )
+                        )
+                        .statusBarsPadding()
+                        .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+                ) {
+                    HeroPanel(
+                        headline = headline,
+                        hasActiveQuest = activeQuests.isNotEmpty(),
+                        isAiGenerating = isAiGenerating,
+                        aiLoadingMessage = aiLoadingMessage,
+                        onRollChill = { viewModel.rollQuest(vibe = "chill", intensity = "chill") },
+                        onRollChaos = { viewModel.rollQuest(vibe = "chaos", intensity = "chaotic") },
+                        onRollApi = { showAiThemeDialog = true },
+                        onSummonBoss = { viewModel.summonBossQuest() },
+                    )
+                }
             }
 
             item {
-                StatsPanel(
-                    activeCount = summary.activeCount,
-                    completedCount = summary.completedCount,
-                    bossCount = summary.bossCount,
-                    totalXp = summary.totalXp,
-                )
+                Box(Modifier.padding(horizontal = 16.dp)) {
+                    StatsPanel(
+                        activeCount = summary.activeCount,
+                        completedCount = summary.completedCount,
+                        bossCount = summary.bossCount,
+                        totalXp = summary.totalXp,
+                    )
+                }
             }
 
-            item { PreferenceEntry(preferenceViewModel) }
+            item { Box(Modifier.padding(horizontal = 16.dp)) { PreferenceEntry(preferenceViewModel) } }
 
-            item { SectionTitle("进行中的支线", "${activeQuests.size} 个活跃任务") }
+            item { Box(Modifier.padding(horizontal = 16.dp)) { SectionTitle("进行中的支线", "${activeQuests.size} 个活跃任务") } }
 
             if (activeQuests.isEmpty()) {
                 item {
-                    EmptyBoard()
+                    Box(Modifier.padding(horizontal = 16.dp)) { EmptyBoard() }
                 }
             } else {
                 items(activeQuests, key = { it.id }) { quest ->
-                    QuestCard(
-                        quest = quest,
-                        actionsEnabled = !isAiGenerating,
-                        onComplete = {
-                            completionQuestId = quest.id
-                            completionReaction = ""
-                        },
-                        onReroll = { viewModel.rerollQuest(quest) },
-                        onArchive = { viewModel.archiveQuest(quest.id) },
-                        timerState = timerState?.takeIf { it.questId == quest.id },
-                        onStart = {
-                            val notificationsAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                                ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.POST_NOTIFICATIONS,
-                                ) == PackageManager.PERMISSION_GRANTED
-                            if (notificationsAllowed) {
-                                viewModel.startQuestTimer(quest)
-                            } else {
-                                pendingTimerQuestId = quest.id
-                                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            }
-                        },
-                    )
+                    Box(Modifier.padding(horizontal = 16.dp)) {
+                        QuestCard(
+                            quest = quest,
+                            actionsEnabled = !isAiGenerating,
+                            onComplete = {
+                                completionQuestId = quest.id
+                                completionReaction = ""
+                            },
+                            onReroll = { viewModel.rerollQuest(quest) },
+                            onArchive = { viewModel.archiveQuest(quest.id) },
+                            timerState = timerState?.takeIf { it.questId == quest.id },
+                            onStart = {
+                                val notificationsAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                                    ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.POST_NOTIFICATIONS,
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                if (notificationsAllowed) {
+                                    viewModel.startQuestTimer(quest)
+                                } else {
+                                    pendingTimerQuestId = quest.id
+                                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            },
+                        )
+                    }
                 }
             }
 
             if (completedQuests.isNotEmpty()) {
                 item {
-                    SectionTitle("已通关", "最近完成的战绩")
+                    Box(Modifier.padding(horizontal = 16.dp)) { SectionTitle("已通关", "最近完成的战绩") }
                 }
                 items(completedQuests.take(6), key = { it.id }) { quest ->
-                    CompletedQuestCard(quest)
+                    Box(Modifier.padding(horizontal = 16.dp)) { CompletedQuestCard(quest) }
                 }
             }
         }
